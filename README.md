@@ -291,12 +291,17 @@ GTK delivers a decoded key. `Escape` is `"Escape"` and an arrow is `"Left"`. So
 `decode`, `decodeEscape` and `escapeWait` are gone, and the port is *shorter*
 where the terminal was hardest.
 
-### What it asked Solveig for and did not find
+### What it asked Solveig for, and got
 
 One thing: **`string:replace`**. Escaping `&`, `<` and `>` for markup wanted it
-three times in one line. `split` then `join` is exact rather than approximate —
-it is what a replace would do — so the workaround costs a line and no accuracy.
-Written down rather than worked around silently.
+three times in one line, and the language had none. `split` then `join` was the
+workaround — exact rather than approximate, since that pair is what a replace
+*does* — so the port shipped with it and the absence was written down instead of
+worked around silently.
+
+It is in Solveig now, and this file uses it. That is the same trigger rule
+running the other way: a program wanted something the *language* did not have,
+so the language grew by one message rather than by a wishlist.
 
 ### What it asked this bundle for
 

@@ -414,15 +414,14 @@ edit:bottom := {
 ;
 ; Everything above this line is untouched. `visible`, `pad`, `status` and
 ; `bottom` compose exactly the strings they always did.
-; The language has no `string:replace`, which this port wanted three times in
-; one line and is the only thing it wanted and did not find. `split` then `join`
-; is exact rather than approximate -- it is what a replace would do -- so the
-; workaround costs a line and no accuracy. Written down rather than worked
-; around silently.
+; This wanted `string:replace` three times in one line, and Solveig had none.
+; The workaround was `split` then `join` -- exact rather than approximate, since
+; that pair is what a replace does -- and it was written down rather than worked
+; around silently. The language gained `replace` because of this line.
 edit:escapeMarkup := { text | | out |
-    out := text:split("&"):join("&amp;").
-    out := out:split("<"):join("&lt;").
-    out:split(">"):join("&gt;") }.
+    out := text:replace("&", "&amp;").
+    out := out:replace("<", "&lt;").
+    out:replace(">", "&gt;") }.
 
 edit:cellAt := { line, column |
     column:greaterThan(line:size):ifElse({ " " }, { line:at(column) }) }.
