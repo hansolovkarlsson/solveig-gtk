@@ -50,22 +50,29 @@ and nowhere else, the way `system` and `array` do.
 
 ## Building
 
-Needs GTK4 and **[Solveig 0.36.0](https://github.com/hansolovkarlsson/Solveig/releases/tag/v0.36.0)
-or later** — the release the extension interface arrived in.
+Needs GTK4 and **[Solveig 0.37.0](https://github.com/hansolovkarlsson/Solveig/releases/tag/v0.37.0)
+or later**.
+
+The extension interface arrived in 0.36.0 and that is all the *bundle* needs to
+build. The **examples** need 0.37.0, because the ported editor uses
+`string:replace` — which it is the reason for. The build asks for the higher of
+the two, since a checkout that compiles `gtk.so` and then cannot `make run` is a
+worse thing to hand somebody than a requirement half a release stricter than the
+C strictly needs.
 
 Either a clone or the release tarball will do. The build reads headers straight
-out of the tree, so an unpacked `solveig-0.36.0/` works as `SOLVEIG` with
+out of the tree, so an unpacked `solveig-0.37.0/` works as `SOLVEIG` with
 nothing else done to it:
 
 ```sh
-curl -LO https://github.com/hansolovkarlsson/Solveig/releases/download/v0.36.0/solveig-0.36.0.tar.gz
-tar xzf solveig-0.36.0.tar.gz && make -C solveig-0.36.0
+curl -LO https://github.com/hansolovkarlsson/Solveig/releases/download/v0.37.0/solveig-0.37.0.tar.gz
+tar xzf solveig-0.37.0.tar.gz && make -C solveig-0.37.0
 
 brew install gtk4                 # macOS
 apt install libgtk-4-dev          # Debian, Ubuntu
 
-make SOLVEIG=solveig-0.36.0       # -> build/gtk.so;  default is ../Solveig
-make run SOLVEIG=solveig-0.36.0   # build and counter
+make SOLVEIG=solveig-0.37.0       # -> build/gtk.so;  default is ../Solveig
+make run SOLVEIG=solveig-0.37.0   # build and counter
 ```
 
 **The version is checked rather than taken on trust**, because the failure it
@@ -73,8 +80,8 @@ prevents is unhelpful: an older checkout has no `solum/extend.h` at all, so the
 compiler says a header is missing and says nothing about why.
 
 ```
-solveig-gtk: found Solveig 0.35.0 under ../Solveig,
-  and the extension interface arrived in 0.36.0.
+solveig-gtk: found Solveig 0.36.0 under ../Solveig,
+  and this needs 0.37.0 or later.
   Update that checkout, or point SOLVEIG at a newer one.
 ```
 
