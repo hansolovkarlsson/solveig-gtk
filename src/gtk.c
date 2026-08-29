@@ -209,10 +209,25 @@ static gboolean on_timeout(gpointer data)
     return G_SOURCE_CONTINUE;
 }
 
-static void on_window_closed(GtkWindow *window, gpointer data)
+/* The close button, and the two GTK4 facts this has to be written around.
+ *
+ * **`GtkWidget::destroy` is gone in GTK4.** Connecting to it silently does
+ * nothing, which is what the first version of this file did -- so the counter
+ * below never moved and `gtk:run` never returned. The window vanished and the
+ * command did not: found by clicking, which is the one path the tests here
+ * cannot take.
+ *
+ * **And `close-request`'s default handler hides the window rather than
+ * destroying it.** GTK4 leaves window lifetime to GtkApplication, which owns
+ * `main` and which an extension therefore cannot use. So closing has to be
+ * finished by hand: destroy it, count it, and answer TRUE to say it is dealt
+ * with. */
+static gboolean on_close_request(GtkWindow *window, gpointer data)
 {
-    (void)window; (void)data;
+    (void)data;
+    gtk_window_destroy(window);
     if (--windows_open <= 0 && loop != NULL) g_main_loop_quit(loop);
+    return TRUE;
 }
 
 /* ---- opening and closing the toolkit ------------------------------------- */
@@ -281,7 +296,7 @@ static SolValue prim_window(SolVM *vm, SolValue self, SolValue *a, int argc)
                                 (int)SOL_AS_INT(a[1]), (int)SOL_AS_INT(a[2]));
 
     windows_open++;
-    g_signal_connect(window, "destroy", G_CALLBACK(on_window_closed), NULL);
+    g_signal_connect(window, "close-request", G_CALLBACK(on_close_request), NULL);
     return wrap(vm, window);
 }
 
@@ -382,6 +397,24 @@ static SolValue prim_show(SolVM *vm, SolValue self, SolValue *a, int argc)
         return SOL_NIL_VAL;
     }
     gtk_window_present(GTK_WINDOW(window));
+    return a[0];
+}
+
+/* gtk:close(window) -- exactly what the close button does, and here so that the
+   path can be taken by a test rather than only by a person. Its absence is why
+   a bug in that path shipped. */
+static SolValue prim_close(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "close", argc, 1)) return SOL_NIL_VAL;
+
+    GtkWidget *window = widget_of(vm, "close", a[0]);
+    if (window == NULL) return SOL_NIL_VAL;
+    if (!GTK_IS_WINDOW(window)) {
+        sol_vm_runtime_error(vm, "'close' expects a window");
+        return SOL_NIL_VAL;
+    }
+    gtk_window_close(GTK_WINDOW(window));
     return a[0];
 }
 
@@ -486,6 +519,7 @@ int sol_extension_init(SolVM *vm, int abi)
     sol_object_define_primitive(vm, gtk, "add",      prim_add);
     sol_object_define_primitive(vm, gtk, "setChild", prim_set_child);
     sol_object_define_primitive(vm, gtk, "show",     prim_show);
+    sol_object_define_primitive(vm, gtk, "close",    prim_close);
 
     sol_object_define_primitive(vm, gtk, "setText",  prim_set_text);
     sol_object_define_primitive(vm, gtk, "text",     prim_text);

@@ -90,6 +90,7 @@ You never rebuild `solvm` to add an extension. You do rebuild extensions when
 | `gtk:add(box, child)` | answers the box, so adds chain |
 | `gtk:setChild(window, child)` | |
 | `gtk:show(window)` | |
+| `gtk:close(window)` | exactly what the close button does |
 | `gtk:setText(w, text)` `gtk:text(w)` | on a label, a button or a window |
 | `gtk:onClick(button, block)` | |
 | `gtk:every(#milliseconds, block)` | until the block answers `false` |
@@ -168,6 +169,29 @@ releases it when the widget goes away, so a program that opens and closes a
 thousand dialogs retains nothing.
 
 ## What is not here
+
+## Two GTK4 facts this is written around
+
+Both were found by clicking the close button, which is the one path the tests
+here cannot take — and a bug in it shipped in the first commit because of that.
+
+**`GtkWidget::destroy` does not exist in GTK4.** Connecting to it silently does
+nothing. The first version counted open windows there, so the count never moved:
+the window vanished and the command kept running.
+
+**And `close-request`'s default handler hides the window rather than destroying
+it.** GTK4 leaves window lifetime to `GtkApplication` — which owns `main`, which
+an extension does not have. So closing is finished by hand: destroy the window,
+count it, and answer `TRUE` to say it is dealt with.
+
+`gtk:close` exists because of this. It does exactly what the close button does,
+which means the path can now be taken by a program rather than only by a person:
+
+```
+gtk:every(#600, { gtk:close(w). false }).
+gtk:run.
+"clean exit":print.
+```
 
 **Only one window's worth of widgets.** No entry, no list, no drawing area, no
 menus, no CSS, no `GtkApplication`. This is the first bundle rather than a
