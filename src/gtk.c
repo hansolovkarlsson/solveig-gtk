@@ -1,4 +1,4 @@
-/* gtk.c -- a GTK4 window for Solum, loaded at run time.
+/* gtk.c -- a GTK4 window for Solveig, loaded at run time.
  *
  * Built as a shared object and named when a program is started:
  *

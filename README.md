@@ -1,6 +1,6 @@
 # solveig-gtk
 
-A GTK4 window for [Solum](https://github.com/hansolovkarlsson/Solveig), loaded
+A GTK4 window for [Solveig](https://github.com/hansolovkarlsson/Solveig), loaded
 at run time.
 
 ```sh
