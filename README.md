@@ -50,7 +50,19 @@ and nowhere else, the way `system` and `array` do.
 
 ## Building
 
-Needs GTK4 and a checkout of Solveig 0.36.0 or later.
+Needs GTK4 and a checkout of **Solveig 0.36.0 or later** — the release the
+extension interface arrived in. The build checks, rather than trusting you:
+
+```
+solveig-gtk: found Solveig 0.35.0 under ../Solveig,
+  and the extension interface arrived in 0.36.0.
+  Update that checkout, or point SOLVEIG at a newer one.
+```
+
+That is a build-time check for *is there an extension interface at all*. The
+run-time half is separate and stays separate: `SOL_EXTENSION_ABI` is compared
+when the bundle loads, and catches a Solveig whose structs moved under a bundle
+built earlier.
 
 ```sh
 brew install gtk4                 # macOS
