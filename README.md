@@ -96,9 +96,13 @@ You never rebuild `solvm` to add an extension. You do rebuild extensions when
 | `gtk:every(#milliseconds, block)` | until the block answers `false` |
 
 A widget is a **foreign handle** — `<gtk widget>` when printed, compared by
-identity, answering `isKindOf(foreign)`. There is no `close` and no `destroy`:
-the collector releases a widget the program has let go of, and the machine
-releases what is still held when it goes down.
+identity, answering `isKindOf(foreign)`.
+
+`gtk:close` is a *window* operation and not a release: it is what the close
+button does, and the handle stays a perfectly good value afterwards. **Nothing
+releases the resource by hand**, because nothing has to — the collector releases
+a widget the program has let go of, and the machine releases whatever is still
+held when it goes down, including for a program a limit took away mid-flight.
 
 ## What the program does not say
 
@@ -168,8 +172,6 @@ answer a plausible wrong block. `g_signal_connect_data`'s destroy notify is what
 releases it when the widget goes away, so a program that opens and closes a
 thousand dialogs retains nothing.
 
-## What is not here
-
 ## Two GTK4 facts this is written around
 
 Both were found by clicking the close button, which is the one path the tests
@@ -192,6 +194,8 @@ gtk:every(#600, { gtk:close(w). false }).
 gtk:run.
 "clean exit":print.
 ```
+
+## What is not here
 
 **Only one window's worth of widgets.** No entry, no list, no drawing area, no
 menus, no CSS, no `GtkApplication`. This is the first bundle rather than a
