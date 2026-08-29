@@ -77,32 +77,67 @@ built against a different SolVM, rebuild it against this one
 You never rebuild `solvm` to add an extension. You do rebuild extensions when
 `solvm` changes.
 
-## The messages
+## Reference
+
+Fifteen messages. Every one that changes a widget answers that widget, so calls
+chain.
+
+### Opening and closing
 
 | | |
 | --- | --- |
-| `gtk:start` | open the toolkit; fails saying so when there is no display |
-| `gtk:run` | hand the program to GTK until the last window closes |
-| `gtk:quit` | leave the loop early, from inside a handler |
-| `gtk:window(title, #width, #height)` | a window |
-| `gtk:label(text)` `gtk:button(text)` | |
-| `gtk:box('vertical, #spacing)` | or `'horizontal` |
-| `gtk:add(box, child)` | answers the box, so adds chain |
-| `gtk:setChild(window, child)` | |
-| `gtk:show(window)` | |
-| `gtk:close(window)` | exactly what the close button does |
-| `gtk:setText(w, text)` `gtk:text(w)` | on a label, a button or a window |
-| `gtk:onClick(button, block)` | |
-| `gtk:every(#milliseconds, block)` | until the block answers `false` |
+| `gtk:start` | Opens the toolkit. Answers `true`, or fails with *no display to open a window on*. Calling it twice is harmless. Everything else fails until it has been called. |
+| `gtk:run` | Hands the program to GTK until the last window closes. Answers `nil`. Returns immediately if no window is open. |
+| `gtk:quit` | Ends `gtk:run` early, from inside a handler. Answers `nil`. |
 
-A widget is a **foreign handle** — `<gtk widget>` when printed, compared by
-identity, answering `isKindOf(foreign)`.
+### Making widgets
 
-`gtk:close` is a *window* operation and not a release: it is what the close
-button does, and the handle stays a perfectly good value afterwards. **Nothing
-releases the resource by hand**, because nothing has to — the collector releases
-a widget the program has let go of, and the machine releases whatever is still
-held when it goes down, including for a program a limit took away mid-flight.
+| | |
+| --- | --- |
+| `gtk:window(title, #width, #height)` | A window, not yet shown. `title` is a string. |
+| `gtk:label(text)` | |
+| `gtk:button(text)` | |
+| `gtk:box('vertical, #spacing)` | Or `'horizontal`. Carries a 12px margin. |
+
+Each answers a **foreign handle** — `<gtk widget>` when printed.
+
+### Arranging them
+
+| | | |
+| --- | --- | --- |
+| `gtk:add(box, child)` | answers the box | first argument must be a box |
+| `gtk:setChild(window, child)` | answers the window | a window holds one child; use a box for more |
+| `gtk:show(window)` | answers the window | |
+| `gtk:close(window)` | answers the window | exactly what the close button does |
+
+### Text
+
+| | |
+| --- | --- |
+| `gtk:setText(widget, text)` | On a label, a button or a window. Answers the widget. |
+| `gtk:text(widget)` | Answers a string; `""` where GTK has none. |
+
+### What happens next
+
+| | |
+| --- | --- |
+| `gtk:onClick(button, block)` | Answers the button. The block takes no arguments. |
+| `gtk:every(#milliseconds, block)` | Answers `nil`. Runs the block on a timer until it answers `false`. |
+
+### Failures
+
+Every message checks its own arity and its argument types, and says which
+message and what it got:
+
+```
+'window' expects an integer, got float -- sizes are written with '#'
+'add' expects a box as its first argument
+'onClick' expects a block, got nil
+'label' before gtk:start -- the toolkit has not been opened
+```
+
+A widget from another extension is refused the same way, because the foreign
+handle carries a kind and it is checked.
 
 ## What the program does not say
 
@@ -195,19 +230,54 @@ gtk:run.
 "clean exit":print.
 ```
 
-## What is not here
+## How much of GTK4 this is
 
-**Only one window's worth of widgets.** No entry, no list, no drawing area, no
-menus, no CSS, no `GtkApplication`. This is the first bundle rather than a
-binding, and it exists to prove the mechanism carries a real toolkit — which it
-does, including the two things that were genuinely uncertain: a foreign main
-loop calling back into the VM, and widget lifetimes against a garbage collector.
+**About half a percent of it**, and that is deliberate. The numbers, because
+"a subset" could mean anything:
 
-**No `GtkApplication`.** It wants to own `main`, and an extension does not have
-one. `gtk:run` is a `GMainLoop` that ends when the last window closes.
+| | |
+| --- | --- |
+| `gtk_*` functions exported by libgtk-4 | **4,299** |
+| distinct ones this extension calls | **21** |
+| messages it publishes | **15** |
 
-**One thread.** A VM is one thread's, and GTK wants the main one. Neither is
-negotiable and together they cost nothing today.
+**What is missing, in the order you will miss it.** No entry and no text view,
+so there is no way to type anything. No list, tree or grid, and no layout beyond
+a single box. No dialogs, no menus, no CSS, no drawing area, no
+`GtkApplication`. You can build a window that shows things and reacts to
+clicks. You cannot build a form.
+
+**This is a demonstration that the mechanism carries a real toolkit, not a
+binding to write an application against.** It exists because two things about a
+real toolkit were genuinely uncertain — a foreign main loop calling back into
+the VM, and widget lifetimes against a garbage collector — and neither could be
+settled by a smaller example.
+
+### Adding more is mechanical now, which is the point
+
+The expensive work was per-*toolkit*, not per-function, and it is done:
+
+- widget lifetimes against the collector — solved once, in `wrap()`
+- the main loop re-entering the VM — solved once
+- callbacks surviving collection — solved once, through the retain registry
+- limits still applying — solved once, by checking `had_error`
+
+A new message is a primitive, an arity check, a `sol_foreign_handle` call and a
+line in `sol_extension_init`. Fifteen lines. The first fifteen messages took a
+day; the next fifty would take an afternoon and no design at all.
+
+### And at GTK's size, by hand is probably the wrong way
+
+GTK ships **GObject Introspection** data — `Gtk-4.0.gir` describes **3,348
+methods** in machine-readable XML, with types, ownership transfer and
+nullability. That is what every other language's GTK binding is generated from
+rather than typed out. A generator emitting `sol_object_define_primitive` calls
+from the GIR is the obvious way to go past a few dozen messages.
+
+**Nothing here is waiting on that.** The trigger is a program that wants
+something this does not have — which is the same rule that decided every other
+question in this project, and the reason there are fifteen messages rather than
+four hundred.
 
 ## Licence
 
