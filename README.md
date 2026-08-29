@@ -50,8 +50,27 @@ and nowhere else, the way `system` and `array` do.
 
 ## Building
 
-Needs GTK4 and a checkout of **Solveig 0.36.0 or later** — the release the
-extension interface arrived in. The build checks, rather than trusting you:
+Needs GTK4 and **[Solveig 0.36.0](https://github.com/hansolovkarlsson/Solveig/releases/tag/v0.36.0)
+or later** — the release the extension interface arrived in.
+
+Either a clone or the release tarball will do. The build reads headers straight
+out of the tree, so an unpacked `solveig-0.36.0/` works as `SOLVEIG` with
+nothing else done to it:
+
+```sh
+curl -LO https://github.com/hansolovkarlsson/Solveig/releases/download/v0.36.0/solveig-0.36.0.tar.gz
+tar xzf solveig-0.36.0.tar.gz && make -C solveig-0.36.0
+
+brew install gtk4                 # macOS
+apt install libgtk-4-dev          # Debian, Ubuntu
+
+make SOLVEIG=solveig-0.36.0       # -> build/gtk.so;  default is ../Solveig
+make run SOLVEIG=solveig-0.36.0   # build and counter
+```
+
+**The version is checked rather than taken on trust**, because the failure it
+prevents is unhelpful: an older checkout has no `solum/extend.h` at all, so the
+compiler says a header is missing and says nothing about why.
 
 ```
 solveig-gtk: found Solveig 0.35.0 under ../Solveig,
@@ -59,27 +78,14 @@ solveig-gtk: found Solveig 0.35.0 under ../Solveig,
   Update that checkout, or point SOLVEIG at a newer one.
 ```
 
-That is a build-time check for *is there an extension interface at all*. The
-run-time half is separate and stays separate: `SOL_EXTENSION_ABI` is compared
-when the bundle loads, and catches a Solveig whose structs moved under a bundle
-built earlier.
+A missing GTK4 is named the same way rather than left to the compiler.
 
-```sh
-brew install gtk4                 # macOS
-apt install libgtk-4-dev          # Debian, Ubuntu
-
-make                              # -> build/gtk.so
-make SOLVEIG=/path/to/Solveig     # if it is not ../Solveig
-make run                          # build and open the counter
-```
-
-`make` says which of the two is missing rather than letting the compiler produce
-an error that does not name the cause.
-
-**A bundle is per-platform and per-build.** `SOL_EXTENSION_ABI` is compared for
-equality and refused, never guessed — `SolValue` is passed by value and
-`SolObject`'s layout is exposed, so nearly any struct change in the VM moves the
-number. If `solvm` is rebuilt from a newer Solveig, rebuild this too:
+**That is a build-time check for one thing only** — *is there an extension
+interface at all*. The run-time half is separate and stays separate: a bundle is
+per-platform and per-build, and `SOL_EXTENSION_ABI` is compared for equality
+when it loads, never guessed, since `SolValue` is passed by value and
+`SolObject`'s layout is exposed. So rebuild this whenever `solvm` is rebuilt
+from a newer Solveig:
 
 ```
 solvm: cannot load extension build/gtk.so: refused ABI 1 --
