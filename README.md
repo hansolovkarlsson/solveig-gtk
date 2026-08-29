@@ -97,8 +97,8 @@ You never rebuild `solvm` to add an extension. You do rebuild extensions when
 
 ## Reference
 
-Fifteen messages. Every one that changes a widget answers that widget, so calls
-chain.
+Seventeen messages. Every one that changes a widget answers that widget, so
+calls chain.
 
 ### Opening and closing
 
@@ -134,12 +134,14 @@ Each answers a **foreign handle** — `<gtk widget>` when printed.
 | --- | --- |
 | `gtk:setText(widget, text)` | On a label, a button or a window. Answers the widget. |
 | `gtk:text(widget)` | Answers a string; `""` where GTK has none. |
+| `gtk:setMarkup(label, markup)` | Pango markup rather than plain text — `<tt>` for monospace, `<span background=…>` for a highlight. The caller escapes its own text; invalid markup is refused rather than drawn wrong. |
 
 ### What happens next
 
 | | |
 | --- | --- |
 | `gtk:onClick(button, block)` | Answers the button. The block takes no arguments. |
+| `gtk:onKey(window, block)` | Answers the window. The block takes one argument: an object with `event:key` (GDK's name — `"Escape"`, `"Left"`, `"a"`) and `event:text` (what typing it produces, or `nil`). |
 | `gtk:every(#milliseconds, block)` | Answers `nil`. Runs the block on a timer until it answers `false`. |
 
 ### Failures
@@ -248,6 +250,65 @@ gtk:run.
 "clean exit":print.
 ```
 
+## The editor, ported
+
+[examples/edit.sol](examples/edit.sol) is Solveig's own
+[modal terminal editor](https://github.com/hansolovkarlsson/Solveig/blob/main/programs/edit.sol)
+— 1,766 lines, vi-like, with motions, operators, undo, marks, search and
+`:s///` — running in a window. It was ported to find out what this bundle was
+missing, which is what both this repository and Solveig's notes say the trigger
+for more messages is.
+
+**The model did not move.** Of 1,766 lines, the diff removes 33 and adds 114,
+most of them comments explaining the port. The buffer, the motions, the undo
+stack, the operators and the whole of `:s///` are the file as it was.
+
+### What had to change: three things, and only one of them was interesting
+
+**`screen:measure` became a constant.** The terminal version asked
+`system:terminalSize` every frame — a message added to Solveig *for* this
+program. A window is a grid the program chooses, so the ask is gone.
+
+**`edit:render` writes markup instead of ANSI.** It composed one string and
+called `system:write` once; it now composes the same string and calls
+`gtk:setMarkup`. Cursor-home, erase-line and reverse-video become `<tt>` and two
+spans — and the cursor, which a terminal drew for free by *moving* one, is now a
+cell with a background.
+
+**And the loop inverted, which is the whole of the port that is not mechanical.**
+The terminal version owned its loop: draw, block on a key, act. GTK owns the
+loop and calls in, so the body turns inside out — act on the key GTK brings,
+then draw — and `gtk:run` is where the program waits. Nothing above the driver
+knows it happened.
+
+### What the port deleted
+
+The terminal's hardest problem: **`escape` cannot be told from the first byte of
+an arrow.** That is why Solveig has `system:keyWaiting`, why `edit:escapeWait` is
+fifty milliseconds, and why `edit:decodeEscape` exists at all.
+
+GTK delivers a decoded key. `Escape` is `"Escape"` and an arrow is `"Left"`. So
+`decode`, `decodeEscape` and `escapeWait` are gone, and the port is *shorter*
+where the terminal was hardest.
+
+### What it asked Solveig for and did not find
+
+One thing: **`string:replace`**. Escaping `&`, `<` and `>` for markup wanted it
+three times in one line. `split` then `join` is exact rather than approximate —
+it is what a replace would do — so the workaround costs a line and no accuracy.
+Written down rather than worked around silently.
+
+### What it asked this bundle for
+
+`gtk:onKey` and `gtk:setMarkup`, which is why they exist. A key arrives as an
+object with `event:key` (GDK's name for it) and `event:text` (what typing it
+produces, or nil) — two fields because a binding needs the first and an insert
+mode needs the second, and neither can be guessed from the other.
+
+That is the trigger firing exactly as designed: **a program wanted something the
+bundle did not have, and the bundle grew by two messages rather than by four
+hundred.**
+
 ## How much of GTK4 this is
 
 **About half a percent of it**, and that is deliberate. The numbers, because
@@ -256,8 +317,8 @@ gtk:run.
 | | |
 | --- | --- |
 | `gtk_*` functions exported by libgtk-4 | **4,299** |
-| distinct ones this extension calls | **21** |
-| messages it publishes | **15** |
+| distinct ones this extension calls | **26** |
+| messages it publishes | **17** |
 
 **What is missing, in the order you will miss it.** No entry and no text view,
 so there is no way to type anything. No list, tree or grid, and no layout beyond

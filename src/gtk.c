@@ -180,6 +180,68 @@ static bool fire(Handler *handler, SolValue *args_in, int argc)
     return true;
 }
 
+/* A key, as an object with slots, so a program asks it questions the way it
+   asks anything else: `event:key` and `event:text`.
+ *
+ * Two fields because one would not do. `key` is GDK's name for the physical
+ * key -- "Escape", "Left", "BackSpace", "a" -- which is what a binding is
+ * written against. `text` is what typing it produces, or nil where it produces
+ * nothing, which is what an insert mode needs. They differ for every key worth
+ * naming, and a binding that only had one of them would be guessing at the
+ * other.
+ *
+ * Deliberately *not* shaped to any particular program: it hands over what GDK
+ * knows and lets the program decide what a key means. */
+static SolValue key_event(SolVM *vm, guint keyval)
+{
+    SolObject *event = sol_object_new(vm, vm->object_class);
+    SolValue answer = SOL_OBJ_VAL(event);
+
+    /* Rule 3: `answer` is held only in a C local and the calls below allocate. */
+    sol_gc_push_temp(vm, (SolGCHeader *)event);
+
+    const char *name = gdk_keyval_name(keyval);
+    if (name == NULL) name = "";
+    sol_object_define(vm, event, "key",
+        SOL_STRING_VAL(sol_string_new(vm, name, (int)strlen(name))));
+
+    guint32 unicode = gdk_keyval_to_unicode(keyval);
+    if (unicode != 0 && g_unichar_isprint((gunichar)unicode)) {
+        char utf8[8];
+        int n = g_unichar_to_utf8((gunichar)unicode, utf8);
+        sol_object_define(vm, event, "text",
+            SOL_STRING_VAL(sol_string_new(vm, utf8, n)));
+    } else {
+        sol_object_define(vm, event, "text", SOL_NIL_VAL);
+    }
+
+    sol_gc_pop_temp(vm);
+    return answer;
+}
+
+static gboolean on_key_pressed(GtkEventControllerKey *controller, guint keyval,
+                               guint keycode, GdkModifierType state,
+                               gpointer data)
+{
+    (void)controller; (void)keycode; (void)state;
+    Handler *handler = data;
+
+    SolValue block;
+    if (!sol_extension_retained(handler->vm, handler->block, &block)) {
+        return GDK_EVENT_PROPAGATE;
+    }
+
+    SolValue event = key_event(handler->vm, keyval);
+    sol_vm_call_block(handler->vm, block, &event, 1);
+    if (handler->vm->had_error) {                            /* rule 4 */
+        if (loop != NULL) g_main_loop_quit(loop);
+        return GDK_EVENT_STOP;
+    }
+    /* Stopped rather than propagated: a program that asked for keys gets them
+       all, including the ones GTK would otherwise spend on focus movement. */
+    return GDK_EVENT_STOP;
+}
+
 static void on_clicked(GtkButton *button, gpointer data)
 {
     (void)button;
@@ -483,6 +545,65 @@ static SolValue prim_on_click(SolVM *vm, SolValue self, SolValue *a, int argc)
     return a[0];
 }
 
+/* gtk:onKey(window, { event | ... }) -- every key, while the window has focus. */
+static SolValue prim_on_key(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "onKey", argc, 2)) return SOL_NIL_VAL;
+    if (!wants_block(vm, "onKey", a[1])) return SOL_NIL_VAL;
+
+    GtkWidget *window = widget_of(vm, "onKey", a[0]);
+    if (window == NULL) return SOL_NIL_VAL;
+    if (!GTK_IS_WINDOW(window)) {
+        sol_vm_runtime_error(vm, "'onKey' expects a window");
+        return SOL_NIL_VAL;
+    }
+
+    GtkEventController *keys = gtk_event_controller_key_new();
+    Handler *handler = handler_new(vm, a[1]);
+    g_signal_connect_data(keys, "key-pressed", G_CALLBACK(on_key_pressed),
+                          handler, handler_free, 0);
+    gtk_widget_add_controller(window, keys);
+    return a[0];
+}
+
+/* gtk:setMarkup(label, "<tt>...</tt>") -- Pango markup rather than plain text.
+ *
+ * Here because a screen is not a paragraph: a monospace font, a highlighted
+ * status line and a block cursor are all one label with three kinds of span in
+ * it, and `setText` can say none of them. `<tt>` is monospace, and
+ * `<span background=...>` is the cursor.
+ *
+ * The caller escapes its own text. A `&` or a `<` in a file being edited would
+ * otherwise be markup, and this cannot know which of the two the caller meant.
+ * Invalid markup is refused rather than drawn wrong. */
+static SolValue prim_set_markup(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "setMarkup", argc, 2)) return SOL_NIL_VAL;
+    if (!wants_string(vm, "setMarkup", a[1])) return SOL_NIL_VAL;
+
+    GtkWidget *widget = widget_of(vm, "setMarkup", a[0]);
+    if (widget == NULL) return SOL_NIL_VAL;
+    if (!GTK_IS_LABEL(widget)) {
+        sol_vm_runtime_error(vm, "'setMarkup' expects a label");
+        return SOL_NIL_VAL;
+    }
+
+    const char *markup = SOL_AS_STRING(a[1])->chars;
+    GError *error = NULL;
+    if (!pango_parse_markup(markup, -1, 0, NULL, NULL, NULL, &error)) {
+        sol_vm_runtime_error(vm, "'setMarkup' was given markup Pango refuses: %s",
+                             error != NULL ? error->message : "?");
+        if (error != NULL) g_error_free(error);
+        return SOL_NIL_VAL;
+    }
+    gtk_label_set_markup(GTK_LABEL(widget), markup);
+    gtk_label_set_xalign(GTK_LABEL(widget), 0.0f);
+    gtk_label_set_yalign(GTK_LABEL(widget), 0.0f);
+    return a[0];
+}
+
 /* gtk:every(#milliseconds, { ... }) -- until the block answers false. */
 static SolValue prim_every(SolVM *vm, SolValue self, SolValue *a, int argc)
 {
@@ -525,6 +646,8 @@ int sol_extension_init(SolVM *vm, int abi)
     sol_object_define_primitive(vm, gtk, "text",     prim_text);
 
     sol_object_define_primitive(vm, gtk, "onClick",  prim_on_click);
+    sol_object_define_primitive(vm, gtk, "onKey",    prim_on_key);
+    sol_object_define_primitive(vm, gtk, "setMarkup", prim_set_markup);
     sol_object_define_primitive(vm, gtk, "every",    prim_every);
 
     sol_vm_set_global(vm, "gtk", SOL_OBJ_VAL(gtk));
