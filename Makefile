@@ -2,6 +2,9 @@
 #
 #   make                build build/gtk.so
 #   make run            build it and run examples/counter.sol
+#   make counter        the same, said by name
+#   make circles        build it and run examples/circles.sol
+#   make edit           build it and run examples/edit.sol
 #   make clean
 #
 # This is an *extension*, so it is not part of Solveig and does not build with
@@ -65,7 +68,7 @@ INCLUDES = -I$(SOLVEIG)/solum/include
 
 TARGET = $(BUILD)/gtk.so
 
-.PHONY: all run clean check
+.PHONY: all run counter circles edit clean check
 
 all: $(TARGET)
 
@@ -91,8 +94,15 @@ check:
 	      echo "  and this needs $(SOLVEIG_MINIMUM) or later."; \
 	      echo "  Update that checkout, or point SOLVEIG at a newer one."; exit 1; }
 
-run: all
+run counter: all
 	$(SOLVEIG)/bin/solis --extension=$(TARGET) examples/counter.sol
+
+# Bouncing discs on a canvas, and the one example that draws.
+circles: all
+	$(SOLVEIG)/bin/solis --extension=$(TARGET) examples/circles.sol
+
+edit: all
+	$(SOLVEIG)/bin/solis --extension=$(TARGET) examples/edit.sol
 
 clean:
 	rm -rf $(BUILD)

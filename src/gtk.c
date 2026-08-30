@@ -620,6 +620,152 @@ static SolValue prim_every(SolVM *vm, SolValue self, SolValue *a, int argc)
     return SOL_NIL_VAL;
 }
 
+/* ---- drawing -------------------------------------------------------------- */
+
+/* **A canvas is the one widget whose content is a callback.** Everything above
+   is told what to show; a drawing area is *asked*, every time GTK decides the
+   pixels are stale, and it answers by running a block.
+ *
+ * **What the block draws with is the question this shape answers.** A `cairo_t`
+ * is alive only for the length of one draw callback, so handing one to the
+ * program would hand out something that dangles the moment the callback
+ * returns -- and a program that stored it would corrupt memory rather than get
+ * an error. So the context is not published. It lives here for exactly as long
+ * as it is valid, and `colour` and `circle` ask for it; outside a draw block
+ * they say so and stop.
+ *
+ * That is a different trade from the widget messages, which take their receiver
+ * openly. It is made because the alternative cannot be made safe, not because
+ * an implicit receiver is nicer. */
+
+static cairo_t *live_cr;
+
+static cairo_t *drawing_now(SolVM *vm, const char *name)
+{
+    if (live_cr == NULL) {
+        sol_vm_runtime_error(vm, "'%s' outside a draw block -- "
+                             "there is nothing to draw on", name);
+        return NULL;
+    }
+    return live_cr;
+}
+
+/* `gtk_drawing_area_set_draw_func` takes a GDestroyNotify rather than the
+   GClosure notify the signal handlers use, so the release gets its own door
+   into the same room. */
+static void handler_destroy(gpointer data)
+{
+    Handler *handler = data;
+    sol_extension_release(handler->vm, handler->block);
+    g_free(handler);
+}
+
+static void on_draw(GtkDrawingArea *area, cairo_t *cr, int width, int height,
+                    gpointer data)
+{
+    (void)area;
+    SolValue size[2] = { SOL_INT_VAL(width), SOL_INT_VAL(height) };
+
+    /* Valid for this call and no longer. Cleared on the way out whatever the
+       block did, including stopping the machine. */
+    live_cr = cr;
+    fire(data, size, 2);
+    live_cr = NULL;
+}
+
+static SolValue prim_canvas(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "canvas", argc, 2)) return SOL_NIL_VAL;
+    if (!wants_integer(vm, "canvas", a[0])) return SOL_NIL_VAL;
+    if (!wants_integer(vm, "canvas", a[1])) return SOL_NIL_VAL;
+    if (!ready(vm, "canvas")) return SOL_NIL_VAL;
+
+    GtkWidget *area = gtk_drawing_area_new();
+    gtk_widget_set_size_request(area, (int)SOL_AS_INT(a[0]),
+                                      (int)SOL_AS_INT(a[1]));
+    return wrap(vm, area);
+}
+
+static SolValue prim_on_draw(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "onDraw", argc, 2)) return SOL_NIL_VAL;
+    GtkWidget *widget = widget_of(vm, "onDraw", a[0]);
+    if (widget == NULL) return SOL_NIL_VAL;
+    if (!GTK_IS_DRAWING_AREA(widget)) {
+        sol_vm_runtime_error(vm, "'onDraw' wants a canvas, not another widget");
+        return SOL_NIL_VAL;
+    }
+    if (!wants_block(vm, "onDraw", a[1])) return SOL_NIL_VAL;
+
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(widget), on_draw,
+                                   handler_new(vm, a[1]), handler_destroy);
+    return SOL_NIL_VAL;
+}
+
+/* **Nothing here draws when the program says so.** A canvas redraws when GTK
+   asks it to, and this is how a program says the answer would be different now
+   -- which is the whole of animation: change what the draw block reads, then
+   say the picture is stale. */
+static SolValue prim_redraw(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "redraw", argc, 1)) return SOL_NIL_VAL;
+    GtkWidget *widget = widget_of(vm, "redraw", a[0]);
+    if (widget == NULL) return SOL_NIL_VAL;
+
+    gtk_widget_queue_draw(widget);
+    return SOL_NIL_VAL;
+}
+
+static SolValue prim_colour(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "colour", argc, 3)) return SOL_NIL_VAL;
+    for (int i = 0; i < 3; i++) {
+        if (!wants_integer(vm, "colour", a[i])) return SOL_NIL_VAL;
+    }
+    cairo_t *cr = drawing_now(vm, "colour");
+    if (cr == NULL) return SOL_NIL_VAL;
+
+    /* 0..255 like every other colour in this project, and like solveig-sdl's,
+       though cairo counts in floats. Clamped rather than refused: a colour is
+       not worth stopping a program over. */
+    double channel[3];
+    for (int i = 0; i < 3; i++) {
+        int64_t v = SOL_AS_INT(a[i]);
+        channel[i] = (v < 0 ? 0 : v > 255 ? 255 : v) / 255.0;
+    }
+    cairo_set_source_rgb(cr, channel[0], channel[1], channel[2]);
+    return SOL_NIL_VAL;
+}
+
+/* **A circle is one call here, and it is six lines of Solveig in solveig-sdl.**
+   That is not an inconsistency to tidy up. Cairo has `cairo_arc` and SDL's
+   renderer has rectangles and lines, so each binding publishes what its toolkit
+   has rather than what the other one publishes -- which is the same argument
+   this repository makes about `run` and the main loop, in a smaller place. */
+static SolValue prim_circle(SolVM *vm, SolValue self, SolValue *a, int argc)
+{
+    (void)self;
+    if (!args(vm, "circle", argc, 3)) return SOL_NIL_VAL;
+    for (int i = 0; i < 3; i++) {
+        if (!wants_integer(vm, "circle", a[i])) return SOL_NIL_VAL;
+    }
+    cairo_t *cr = drawing_now(vm, "circle");
+    if (cr == NULL) return SOL_NIL_VAL;
+    if (SOL_AS_INT(a[2]) < 0) {
+        sol_vm_runtime_error(vm, "'circle' wants a radius of 0 or more");
+        return SOL_NIL_VAL;
+    }
+
+    cairo_arc(cr, (double)SOL_AS_INT(a[0]), (double)SOL_AS_INT(a[1]),
+                  (double)SOL_AS_INT(a[2]), 0.0, 2 * G_PI);
+    cairo_fill(cr);
+    return SOL_NIL_VAL;
+}
+
 /* ---- installation -------------------------------------------------------- */
 
 int sol_extension_init(SolVM *vm, int abi)
@@ -649,6 +795,15 @@ int sol_extension_init(SolVM *vm, int abi)
     sol_object_define_primitive(vm, gtk, "onKey",    prim_on_key);
     sol_object_define_primitive(vm, gtk, "setMarkup", prim_set_markup);
     sol_object_define_primitive(vm, gtk, "every",    prim_every);
+
+    sol_object_define_primitive(vm, gtk, "canvas",   prim_canvas);
+    sol_object_define_primitive(vm, gtk, "onDraw",   prim_on_draw);
+    sol_object_define_primitive(vm, gtk, "redraw",   prim_redraw);
+    sol_object_define_primitive(vm, gtk, "colour",   prim_colour);
+    /* Both spellings, for the reason solveig-sdl gives: the language is written
+       in one and its author programs in the other. */
+    sol_object_define_primitive(vm, gtk, "color",    prim_colour);
+    sol_object_define_primitive(vm, gtk, "circle",   prim_circle);
 
     sol_vm_set_global(vm, "gtk", SOL_OBJ_VAL(gtk));
     return 0;

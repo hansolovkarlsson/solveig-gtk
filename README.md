@@ -73,6 +73,7 @@ apt install libgtk-4-dev          # Debian, Ubuntu
 
 make SOLVEIG=solveig-0.37.0       # -> build/gtk.so;  default is ../Solveig
 make run SOLVEIG=solveig-0.37.0   # build and counter
+make circles                     # the canvas example; also `make edit`
 ```
 
 **The version is checked rather than taken on trust**, because the failure it
@@ -150,6 +151,33 @@ Each answers a **foreign handle** — `<gtk widget>` when printed.
 | `gtk:onClick(button, block)` | Answers the button. The block takes no arguments. |
 | `gtk:onKey(window, block)` | Answers the window. The block takes one argument: an object with `event:key` (GDK's name — `"Escape"`, `"Left"`, `"a"`) and `event:text` (what typing it produces, or `nil`). |
 | `gtk:every(#milliseconds, block)` | Answers `nil`. Runs the block on a timer until it answers `false`. |
+
+### Drawing
+
+*A canvas is the one widget whose content is a callback: everything above is
+told what to show, a canvas is **asked**.*
+
+| | |
+| --- | --- |
+| `gtk:canvas(#width, #height)` | A drawing area, at least that big. It is a widget like any other — put it in a window with `setChild`. |
+| `gtk:onDraw(canvas, block)` | Answers `nil`. The block takes two arguments, the canvas's **real** width and height, and runs whenever GTK wants the picture. |
+| `gtk:redraw(canvas)` | Answers `nil`. Says the picture is stale. Nothing here draws when the program says so — this is how a program asks. |
+| `gtk:colour(#r, #g, #b)` | What the next `circle` uses. 0–255, clamped. `gtk:color` is the same message. |
+| `gtk:circle(#x, #y, #radius)` | A filled disc. |
+
+**`colour` and `circle` work only inside a draw block**, and say so otherwise —
+*'circle' outside a draw block — there is nothing to draw on*. The reason is
+that cairo's drawing context is alive only for the length of one callback, so
+publishing it would hand the program something that dangles the moment the
+block returns, and a program that stored it would corrupt memory rather than get
+an error. The context is held here instead, for exactly as long as it is valid.
+
+**A circle is one message here and is six lines of Solveig in
+[solveig-sdl](https://github.com/hansolovkarlsson/solveig-sdl).** That is not an
+inconsistency waiting to be tidied. Cairo has `cairo_arc`; SDL's renderer has
+rectangles and lines, so a disc there is worked out a row at a time. Each
+binding publishes what its toolkit has — the same argument this page makes about
+`run` and the main loop, in a smaller place.
 
 ### Failures
 
@@ -329,14 +357,21 @@ hundred.**
 | | |
 | --- | --- |
 | `gtk_*` functions exported by libgtk-4 | **4,299** |
-| distinct ones this extension calls | **26** |
-| messages it publishes | **17** |
+| distinct ones this extension calls | **30** |
+| cairo functions it calls, for the canvas | **3** |
+| messages it publishes | **23** — 22 distinct, `color` being `colour` |
 
 **What is missing, in the order you will miss it.** No entry and no text view,
 so there is no way to type anything. No list, tree or grid, and no layout beyond
-a single box. No dialogs, no menus, no CSS, no drawing area, no
-`GtkApplication`. You can build a window that shows things and reacts to
-clicks. You cannot build a form.
+a single box. No dialogs, no menus, no CSS, no `GtkApplication`. You can build a
+window that shows things, reacts to clicks and draws; you cannot build a form.
+
+**The drawing area is here and is deliberately thin**: a canvas, a draw block,
+and two ways to make a mark. Cairo has paths, curves, gradients, transforms,
+clipping and text, and none of that is published, because the example that asked
+for a canvas wanted circles. The next one can ask for the next thing — see
+[adding more is mechanical](#adding-more-is-mechanical-now-which-is-the-point),
+which the canvas is now the evidence for rather than the claim.
 
 **This is a demonstration that the mechanism carries a real toolkit, not a
 binding to write an application against.** It exists because two things about a
